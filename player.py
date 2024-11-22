@@ -1,16 +1,16 @@
 import os
 import cv2
-import curses
 import argparse
 import time
 from functools import lru_cache
+import curses
 
 parser = argparse.ArgumentParser(description='ASCII Player')
-parser.add_argument("--width", type=int, default = 120, help="width of the terminal window")
-parser.add_argument("--fps", type=int, default = 30, help="width of the terminal window")
-parser.add_argument("--show", type=bool, default = False, help="show the original video in an opencv window")
-parser.add_argument("--inv", type=bool, default = False, help="invert the shades")
-parser.add_argument("video", type=str, help="path to video or webcam index")
+parser.add_argument("--width", type=int, default=120, help="width of the ASCII art")
+parser.add_argument("--fps", type=int, default=30, help="frames per second")
+parser.add_argument("--inv", action='store_true', help="invert the shades")
+parser.add_argument("--output", type=str, help="output text file to save ASCII frames")
+parser.add_argument("video", type=str, help="path to video file or webcam index")
 args = parser.parse_args()
 
 video = args.video
@@ -25,56 +25,95 @@ if args.inv:
     characters = characters[::-1]
 char_range = int(255 / len(characters))
 
-@lru_cache
+@lru_cache(maxsize=None)
 def get_char(val):
-    return characters[min(int(val/char_range), len(characters)-1)]
+    return characters[min(int(val / char_range), len(characters) - 1)]
+
+if isinstance(video, str) and not os.path.isfile(video):
+    print("Failed to find video at:", args.video)
+    exit(1)
+
+video = cv2.VideoCapture(video)
+ok, frame = video.read()
+if not ok:
+    print("Could not extract frame from video")
+    exit(1)
+
+ratio = width / frame.shape[1]
+height = int(frame.shape[0] * ratio * 0.5)  # Adjust for character dimensions
+
+frame_count = 0
+start_time = time.time()
 
 try:
-    if type(video) is str and not os.path.isfile(video):
-        print("failed to find video at:", args.video)
+    if args.output:
+        # Saving frames to a text file
+        with open(args.output, 'w') as f:
+            while True:
+                ok, orig_frame = video.read()
+                if not ok:
+                    break
 
-    video = cv2.VideoCapture(video)
-    ok, frame = video.read()
-    if not ok:
-        print("could not extract frame from video")
+                frame = cv2.resize(orig_frame, (width, height))
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    ratio = width/frame.shape[1]
-    height = int(frame.shape[0]*ratio) // 2  # charachter height is 2 times character width
-    print(frame.shape)
-    print(width, height, ratio)
+                # Generate ASCII art for the frame
+                ascii_frame = '\n'.join(
+                    ''.join(get_char(pixel) for pixel in row)
+                    for row in frame
+                )
 
-    curses.initscr()
-    window = curses.newwin(height, width, 0, 0)
+                # Write the frame and a separator to the file
+                f.write(ascii_frame + '\n')
+                f.write('===FRAME===\n')  # Frame separator
 
-    frame_count = 0
-    frames_per_ms = args.fps/1000
-    start = time.perf_counter_ns()//1000000
-    while True:
-        ok, orig_frame = video.read()
-        if not ok:
-            break
+                frame_count += 1
 
-        frame = cv2.resize(orig_frame, (width, height))
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        if args.show:
-            cv2.imshow("frame", orig_frame)
-            cv2.waitKey(1)
+        total_time = time.time() - start_time
+        fps = frame_count / total_time
+        print(f"Saved {frame_count} frames at an average of {fps:.2f} fps")
+    else:
+        # Playing the video directly in the terminal using curses
+        curses.initscr()
+        window = curses.newwin(height, width, 0, 0)
+        curses.curs_set(0)  # Hide the cursor
 
-        for y in range(0, frame.shape[0]):
-            for x in range(0, frame.shape[1]):
-                try:
-                    window.addch(y, x, get_char(frame[y, x]))
-                except (curses.error):
-                    pass
+        frame_delay = 1 / args.fps
+        last_time = time.time()
 
-        elapsed = (time.perf_counter_ns()//1000000) - start
-        supposed_frame_count = frames_per_ms * elapsed
-        if frame_count > supposed_frame_count:
-            time.sleep((frame_count-supposed_frame_count)*(1/frames_per_ms)/1000)
-        window.refresh()
-        frame_count += 1
+        while True:
+            ok, orig_frame = video.read()
+            if not ok:
+                break
+
+            frame = cv2.resize(orig_frame, (width, height))
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            # Render the ASCII art onto the window
+            for y in range(frame.shape[0]):
+                for x in range(frame.shape[1]):
+                    try:
+                        window.addch(y, x, get_char(frame[y, x]))
+                    except curses.error:
+                        pass
+
+            window.refresh()
+            frame_count += 1
+
+            # Control frame rate
+            elapsed = time.time() - last_time
+            sleep_time = frame_delay - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            last_time = time.time()
+
+        total_time = time.time() - start_time
+        fps = frame_count / total_time
+        print(f"Played {frame_count} frames at an average of {fps:.2f} fps")
+except KeyboardInterrupt:
+    pass
 finally:
+    if not args.output:
+        curses.endwin()
     cv2.destroyAllWindows()
-    curses.endwin()
-    fps = frame_count / (((time.perf_counter_ns()//1000000) - start) / 1000)
-    print("played on average at %d fps" % fps)
+

@@ -2,15 +2,11 @@
 
 [<img src="bad_apple.gif" width="500"/>](picameleon.png)
 
-This player plays video on a terminal using ascii characters
+This player plays video on a terminal using ASCII characters and has an option to save the output as a text file that can be played back using play_ascii_video.sh. This allows you to play the video in restrictive environments or environments without Python. Requires curses. Cannot run on Windows.
 
 There are 2 versions, one is plain python the other ones uses cython optimizations.
 
 A good example are high contrast videos like `bad apple`, you can download it from youtube with `youtube-dl` from [here](https://www.youtube.com/watch?v=FtutLA63Cp8)
-
-## Youtube Explanation
-
-I made a [youtube video](https://www.youtube.com/watch?v=ASJ3iY0-qpQ&ab_channel=Esser50K) explaining how the general process of converting videos to ascii
 
 ## Install dependencies
 
